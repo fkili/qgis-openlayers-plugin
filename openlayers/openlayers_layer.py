@@ -56,7 +56,8 @@ class OpenlayersLayer(QgsPluginLayer):
     self.setValid(True)
     self.setCrs(coordRSGoogle)
     self.olLayerTypeRegistry = olLayerTypeRegistry
-
+                             #render state object
+    self.oRenderState = RenderState()
     self.setExtent(QgsRectangle(-20037508.34, -20037508.34, 20037508.34, 20037508.34))
 
     self.iface = iface
@@ -98,9 +99,7 @@ class OpenlayersLayer(QgsPluginLayer):
       # wait for page to finish loading
       while not self.loaded:
         qApp.processEvents()
-
     self.render(rendererContext)
-
     return True
 
   def pageRepaintRequested(self, rect):
@@ -134,78 +133,83 @@ class OpenlayersLayer(QgsPluginLayer):
     #qDebug(" outputSize: %d, %d" % (self.iface.mapCanvas().mapRenderer().outputSize().width(), self.iface.mapCanvas().mapRenderer().outputSize().height() ) )
     #qDebug(" scale: %lf" % self.iface.mapCanvas().mapRenderer().scale() )
 
-    olSize = rendererContext.painter().viewport().size()
-    if rendererContext.painter().device().logicalDpiX() != int(self.iface.mapCanvas().mapRenderer().outputDpi()):
-      # use screen dpi for printing
-      sizeFact = self.iface.mapCanvas().mapRenderer().outputDpi() / 25.4 / rendererContext.mapToPixel().mapUnitsPerPixel()
-      olSize.setWidth(rendererContext.extent().width() * sizeFact)
-      olSize.setHeight(rendererContext.extent().height() * sizeFact)
-    qDebug(" olSize: %d, %d" % (olSize.width(), olSize.height()) )
-    self.page.setViewportSize(olSize)
-    targetWidth = olSize.width()
-    targetHeight = olSize.height()
+    #does something change since last render
+    if self.oRenderState.somethingChanged( rendererContext.extent() , rendererContext.painter().viewport().size(), rendererContext.painter().device().logicalDpiX(), self.iface.mapCanvas().mapRenderer().outputDpi(), rendererContext.mapToPixel().mapUnitsPerPixel()):
+      olSize = rendererContext.painter().viewport().size()
+      if rendererContext.painter().device().logicalDpiX() != int(self.iface.mapCanvas().mapRenderer().outputDpi()):
+        # use screen dpi for printing
+        sizeFact = self.iface.mapCanvas().mapRenderer().outputDpi() / 25.4 / rendererContext.mapToPixel().mapUnitsPerPixel()
+        olSize.setWidth(rendererContext.extent().width() * sizeFact)
+        olSize.setHeight(rendererContext.extent().height() * sizeFact)
+        qDebug(" olSize: %d, %d" % (olSize.width(), olSize.height()) )
+      self.page.setViewportSize(olSize)
+      targetWidth = olSize.width()
+      targetHeight = olSize.height()
 
-    # find best resolution or use last
-    qgisRes = rendererContext.extent().width() / targetWidth
-    for res in self.resolutions():
-      olRes = res
-      if qgisRes >= res:
-        break
-
-    # adjust OpenLayers viewport to match QGIS extent
-    olWidth = rendererContext.extent().width() / olRes
-    olHeight = rendererContext.extent().height() / olRes
-    qDebug("  adjust viewport: %f -> %f: %f x %f" % (qgisRes, olRes, olWidth, olHeight))
-    self.page.setViewportSize(QSize(olWidth, olHeight))
-
-    if rendererContext.extent() != self.ext:
-      qDebug("updating OpenLayers extent" )
-      self.ext = rendererContext.extent() #FIXME: store seperate for each rendererContext
-      self.page.mainFrame().evaluateJavaScript("map.zoomToExtent(new OpenLayers.Bounds(%f, %f, %f, %f), true);" % (self.ext.xMinimum(), self.ext.yMinimum(), self.ext.xMaximum(), self.ext.yMaximum()))
-
-    if self.layerType.emitsLoadEnd:
-      # wait for OpenLayers to finish loading
-      # NOTE: does not work with Google and Yahoo layers as they do not emit loadstart and loadend events
-      self.loadEnd = False
-      self.timerLoadEnd.start()
-      while not self.loadEnd:
-        loadEndOL = self.page.mainFrame().evaluateJavaScript("loadEnd")
-        if not loadEndOL.isNull():
-          self.loadEnd = loadEndOL.toBool()
-        else:
-          qDebug("OpenlayersLayer Warning: Could not get loadEnd")
+      # find best resolution or use last
+      qgisRes = rendererContext.extent().width() / targetWidth
+      for res in self.resolutions():
+        olRes = res
+        if qgisRes >= res:
           break
-        qApp.processEvents()
-      self.timerLoadEnd.stop()
+
+      # adjust OpenLayers viewport to match QGIS extent
+      olWidth = rendererContext.extent().width() / olRes
+      olHeight = rendererContext.extent().height() / olRes
+      qDebug("  adjust viewport: %f -> %f: %f x %f" % (qgisRes, olRes, olWidth, olHeight))
+      self.page.setViewportSize(QSize(olWidth, olHeight))
+
+      if rendererContext.extent() != self.ext:
+        qDebug("updating OpenLayers extent" )
+        self.ext = rendererContext.extent() #FIXME: store seperate for each rendererContext
+        self.page.mainFrame().evaluateJavaScript("map.zoomToExtent(new OpenLayers.Bounds(%f, %f, %f, %f), true);" % (rendererContext.extent().xMinimum(), rendererContext.extent().yMinimum(), rendererContext.extent().xMaximum(), rendererContext.extent().yMaximum()))
+
+      if self.layerType.emitsLoadEnd:
+        # wait for OpenLayers to finish loading
+        # NOTE: does not work with Google and Yahoo layers as they do not emit loadstart and loadend events
+        self.loadEnd = False
+        self.timerLoadEnd.start()
+        while not self.loadEnd:
+          loadEndOL = self.page.mainFrame().evaluateJavaScript("loadEnd")
+          if not loadEndOL.isNull():
+            self.loadEnd = loadEndOL.toBool()
+          else:
+            qDebug("OpenlayersLayer Warning: Could not get loadEnd")
+            break
+          qApp.processEvents()
+        self.timerLoadEnd.stop()
+      else:
+        # wait for timeout after pageRepaintRequested
+        self.repaintEnd = False
+        self.timerMax.start()
+        while not self.repaintEnd:
+          qApp.processEvents()
+        self.timerMax.stop()
+
+      #Render WebKit page into rendererContext
+      rendererContext.painter().save()
+      if rendererContext.painter().device().logicalDpiX() != int(self.iface.mapCanvas().mapRenderer().outputDpi()):
+        printScale = 25.4 / self.iface.mapCanvas().mapRenderer().outputDpi() # OL DPI to printer pixels
+        rendererContext.painter().scale(printScale, printScale)
+
+      # render OpenLayers to image
+      img = QImage(olWidth, olHeight, QImage.Format_ARGB32_Premultiplied)
+      painter = QPainter(img)
+      self.page.mainFrame().render(painter)
+      painter.end()
+
+      if olWidth != targetWidth or olHeight != targetHeight:
+        # scale using QImage for better quality
+        img = img.scaled(targetWidth, targetHeight, Qt.KeepAspectRatio, Qt.SmoothTransformation )
+        qDebug("  scale image: %i x %i -> %i x %i" % (olWidth, olHeight, targetWidth, targetHeight,))
+      #Save lasts render state
+      self.oRenderState.update(rendererContext.extent() , rendererContext.painter().viewport().size(), rendererContext.painter().device().logicalDpiX(), self.iface.mapCanvas().mapRenderer().outputDpi(), rendererContext.mapToPixel().mapUnitsPerPixel(), img )
     else:
-      # wait for timeout after pageRepaintRequested
-      self.repaintEnd = False
-      self.timerMax.start()
-      while not self.repaintEnd:
-        qApp.processEvents()
-      self.timerMax.stop()
-
-    #Render WebKit page into rendererContext
-    rendererContext.painter().save()
-    if rendererContext.painter().device().logicalDpiX() != int(self.iface.mapCanvas().mapRenderer().outputDpi()):
-      printScale = 25.4 / self.iface.mapCanvas().mapRenderer().outputDpi() # OL DPI to printer pixels
-      rendererContext.painter().scale(printScale, printScale)
-
-    # render OpenLayers to image
-    img = QImage(olWidth, olHeight, QImage.Format_ARGB32_Premultiplied)
-    painter = QPainter(img)
-    self.page.mainFrame().render(painter)
-    painter.end()
-
-    if olWidth != targetWidth or olHeight != targetHeight:
-      # scale using QImage for better quality
-      img = img.scaled(targetWidth, targetHeight, Qt.KeepAspectRatio, Qt.SmoothTransformation )
-      qDebug("  scale image: %i x %i -> %i x %i" % (olWidth, olHeight, targetWidth, targetHeight,))
-
+		#Restore last render image
+      	img = self.oRenderState.getLastRenderedImage()
     # draw to rendererContext
     rendererContext.painter().drawImage(0, 0, img)
     rendererContext.painter().restore()
-
   def readXml(self, node):
     # custom properties
     self.setLayerType( self.olLayerTypeRegistry.getById( int(node.toElement().attribute("ol_layer_type", "0")) ) )
@@ -246,3 +250,32 @@ class OpenlayersLayer(QgsPluginLayer):
       for res in resVariant.toList():
         self.olResolutions.append(res.toDouble()[0])
     return self.olResolutions
+
+
+#Class define the state of render
+class  RenderState:
+  #initial render state parameters
+  def __init__(self):
+    self.oLastRenderedImage = None
+    self.oLastExtent = None
+    self.oLastViewPortSize = None
+    self.oLastLogicalDpi = None
+    self.oLastOutputDpi = None
+    self.oLasMapsUnitsPerPixel = None
+  #Verify if something changed in the render
+  def somethingChanged(self, extent, portSize, logicalDpi, OutputDpi, mapsUnitPerPixel):
+    if self.oLastExtent != extent or self.oLastViewPortSize != portSize or self.oLastLogicalDpi != logicalDpi or self.oLastOutputDpi != OutputDpi or self.oLasMapsUnitsPerPixel != mapsUnitPerPixel:
+      return True
+    else:
+      return False
+  #returning last qimage generated (used when nothing changed in the render)
+  def getLastRenderedImage(self):
+    return self.oLastRenderedImage
+  #update the state of rander (used when render state changed)
+  def update(self, extent, portSize, logicalDpi, OutputDpi, mapsUnitPerPixel, img):
+    self.oLastRenderedImage = img
+    self.oLastExtent = extent 
+    self.oLastViewPortSize = portSize 
+    self.oLastLogicalDpi = logicalDpi 
+    self.oLastOutputDpi = OutputDpi 
+    self.oLasMapsUnitsPerPixel = mapsUnitPerPixel
