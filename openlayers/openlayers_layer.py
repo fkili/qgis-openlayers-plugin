@@ -42,8 +42,7 @@ class OLWebPage(QWebPage):
       self.setNetworkAccessManager(self.__manager)    
 
   def javaScriptConsoleMessage(self, message, lineNumber, sourceID):
-    #qDebug( "%s[%d]: %s" % (sourceID, lineNumber, message) )
-                             pass
+    qDebug( "%s[%d]: %s" % (sourceID, lineNumber, message) )
 
 
 class OpenlayersLayer(QgsPluginLayer):
@@ -57,6 +56,7 @@ class OpenlayersLayer(QgsPluginLayer):
     self.setValid(True)
     self.setCrs(coordRSGoogle)
     self.olLayerTypeRegistry = olLayerTypeRegistry
+	#render state object
     self.oRenderState = RenderState()
     self.setExtent(QgsRectangle(-20037508.34, -20037508.34, 20037508.34, 20037508.34))
 
@@ -85,12 +85,12 @@ class OpenlayersLayer(QgsPluginLayer):
     self.setLayerType( self.olLayerTypeRegistry.getById(0) )
 
   def draw(self, rendererContext):
-    #qDebug("OpenlayersLayer draw")
+    qDebug("OpenlayersLayer draw")
 
     if not self.loaded:
       self.page = OLWebPage()
       url = "file:///" + os.path.dirname( __file__ ).replace("\\", "/") + "/html/" + self.layerType.html
-      #qDebug( "page file: %s" % url )
+      qDebug( "page file: %s" % url )
       self.page.mainFrame().load(QUrl(url))
       QObject.connect(self.page, SIGNAL("loadFinished(bool)"), self.loadFinished)
       if not self.layerType.emitsLoadEnd:
@@ -114,7 +114,7 @@ class OpenlayersLayer(QgsPluginLayer):
     self.repaintEnd = True
 
   def loadFinished(self, ok):
-    ##qDebug("OpenlayersLayer loadFinished %d" % ok)
+    #qDebug("OpenlayersLayer loadFinished %d" % ok)
     if ok:
       self.loaded = ok
       self.emit(SIGNAL("repaintRequested()"))
@@ -123,18 +123,17 @@ class OpenlayersLayer(QgsPluginLayer):
     self.loadEnd = True
 
   def render(self, rendererContext):
-    #qDebug(" extent: %s" % rendererContext.extent().toString() )
-    #qDebug(" center: %lf, %lf" % (rendererContext.extent().center().x(), rendererContext.extent().center().y() ) )
-    #qDebug(" size: %d, %d" % (rendererContext.painter().viewport().size().width(), rendererContext.painter().viewport().size().height() ) )
-    #qDebug(" logicalDpiX: %d" % rendererContext.painter().device().logicalDpiX() )
-    #qDebug(" outputDpi: %lf" % self.iface.mapCanvas().mapRenderer().outputDpi() )
-    #qDebug(" mapUnitsPerPixel: %d" % rendererContext.mapToPixel().mapUnitsPerPixel() )
-    ##qDebug(" rasterScaleFactor: %s" % str(rendererContext.rasterScaleFactor()) )
-    ##qDebug(" outputSize: %d, %d" % (self.iface.mapCanvas().mapRenderer().outputSize().width(), self.iface.mapCanvas().mapRenderer().outputSize().height() ) )
-    ##qDebug(" scale: %lf" % self.iface.mapCanvas().mapRenderer().scale() )
-
+    qDebug(" extent: %s" % rendererContext.extent().toString() )
+    qDebug(" center: %lf, %lf" % (rendererContext.extent().center().x(), rendererContext.extent().center().y() ) )
+    qDebug(" size: %d, %d" % (rendererContext.painter().viewport().size().width(), rendererContext.painter().viewport().size().height() ) )
+    qDebug(" logicalDpiX: %d" % rendererContext.painter().device().logicalDpiX() )
+    qDebug(" outputDpi: %lf" % self.iface.mapCanvas().mapRenderer().outputDpi() )
+    qDebug(" mapUnitsPerPixel: %d" % rendererContext.mapToPixel().mapUnitsPerPixel() )
+    #qDebug(" rasterScaleFactor: %s" % str(rendererContext.rasterScaleFactor()) )
+    #qDebug(" outputSize: %d, %d" % (self.iface.mapCanvas().mapRenderer().outputSize().width(), self.iface.mapCanvas().mapRenderer().outputSize().height() ) )
+    #qDebug(" scale: %lf" % self.iface.mapCanvas().mapRenderer().scale() )
+	
     #does something change since last render
-	#Verifier s'il s'agit d'un rendrer modifie
     if self.oRenderState.somethingChanged( rendererContext.extent() , rendererContext.painter().viewport().size(), rendererContext.painter().device().logicalDpiX(), self.iface.mapCanvas().mapRenderer().outputDpi(), rendererContext.mapToPixel().mapUnitsPerPixel()):
       olSize = rendererContext.painter().viewport().size()
       if rendererContext.painter().device().logicalDpiX() != int(self.iface.mapCanvas().mapRenderer().outputDpi()):
@@ -142,7 +141,7 @@ class OpenlayersLayer(QgsPluginLayer):
         sizeFact = self.iface.mapCanvas().mapRenderer().outputDpi() / 25.4 / rendererContext.mapToPixel().mapUnitsPerPixel()
         olSize.setWidth(rendererContext.extent().width() * sizeFact)
         olSize.setHeight(rendererContext.extent().height() * sizeFact)
-        #qDebug(" olSize: %d, %d" % (olSize.width(), olSize.height()) )
+        qDebug(" olSize: %d, %d" % (olSize.width(), olSize.height()) )
       self.page.setViewportSize(olSize)
       targetWidth = olSize.width()
       targetHeight = olSize.height()
@@ -157,11 +156,11 @@ class OpenlayersLayer(QgsPluginLayer):
       # adjust OpenLayers viewport to match QGIS extent
       olWidth = rendererContext.extent().width() / olRes
       olHeight = rendererContext.extent().height() / olRes
-      #qDebug("  adjust viewport: %f -> %f: %f x %f" % (qgisRes, olRes, olWidth, olHeight))
+      qDebug("  adjust viewport: %f -> %f: %f x %f" % (qgisRes, olRes, olWidth, olHeight))
       self.page.setViewportSize(QSize(olWidth, olHeight))
 
       if rendererContext.extent() != self.ext:
-        #qDebug("updating OpenLayers extent" )
+        qDebug("updating OpenLayers extent" )
         self.ext = rendererContext.extent() #FIXME: store seperate for each rendererContext
         self.page.mainFrame().evaluateJavaScript("map.zoomToExtent(new OpenLayers.Bounds(%f, %f, %f, %f), true);" % (rendererContext.extent().xMinimum(), rendererContext.extent().yMinimum(), rendererContext.extent().xMaximum(), rendererContext.extent().yMaximum()))
 
@@ -175,7 +174,7 @@ class OpenlayersLayer(QgsPluginLayer):
           if not loadEndOL.isNull():
             self.loadEnd = loadEndOL.toBool()
           else:
-            #qDebug("OpenlayersLayer Warning: Could not get loadEnd")
+            qDebug("OpenlayersLayer Warning: Could not get loadEnd")
             break
           qApp.processEvents()
         self.timerLoadEnd.stop()
@@ -202,11 +201,11 @@ class OpenlayersLayer(QgsPluginLayer):
       if olWidth != targetWidth or olHeight != targetHeight:
         # scale using QImage for better quality
         img = img.scaled(targetWidth, targetHeight, Qt.KeepAspectRatio, Qt.SmoothTransformation )
-        #qDebug("  scale image: %i x %i -> %i x %i" % (olWidth, olHeight, targetWidth, targetHeight,))
+        qDebug("  scale image: %i x %i -> %i x %i" % (olWidth, olHeight, targetWidth, targetHeight,))
       #Save lasts render state
       self.oRenderState.update(rendererContext.extent() , rendererContext.painter().viewport().size(), rendererContext.painter().device().logicalDpiX(), self.iface.mapCanvas().mapRenderer().outputDpi(), rendererContext.mapToPixel().mapUnitsPerPixel(), img )
     else:
-		#si s'agit du meme render donc restaurer l'image precedente
+		#Restore last render image
       	img = self.oRenderState.getLastRenderedImage()
     # draw to rendererContext
     rendererContext.painter().drawImage(0, 0, img)
@@ -236,7 +235,7 @@ class OpenlayersLayer(QgsPluginLayer):
       #self.page.mainFrame().evaluateJavaScript("console.debug(\"[scaleChanged] map.getExtent: \" + map.getExtent());")
       scale = self.page.mainFrame().evaluateJavaScript("map.getScale()")
       if scale.isNull():
-        #qDebug("OpenlayersLayer Warning: Could not get scale from OpenLayers map")
+        qDebug("OpenlayersLayer Warning: Could not get scale from OpenLayers map")
         return 0.0
       else:
         return float(scale.toString())
@@ -251,8 +250,11 @@ class OpenlayersLayer(QgsPluginLayer):
       for res in resVariant.toList():
         self.olResolutions.append(res.toDouble()[0])
     return self.olResolutions
-
+	
+	
+#Class define the state of render
 class  RenderState:
+  #initial render state parameters
   def __init__(self):
     self.oLastRenderedImage = None
     self.oLastExtent = None
@@ -260,18 +262,20 @@ class  RenderState:
     self.oLastLogicalDpi = None
     self.oLastOutputDpi = None
     self.oLasMapsUnitsPerPixel = None
+  #Verify if something changed in the render
   def somethingChanged(self, extent, portSize, logicalDpi, OutputDpi, mapsUnitPerPixel):
     if self.oLastExtent != extent or self.oLastViewPortSize != portSize or self.oLastLogicalDpi != logicalDpi or self.oLastOutputDpi != OutputDpi or self.oLasMapsUnitsPerPixel != mapsUnitPerPixel:
-      #self.update(extent, portSize, logicalDpi, OutputDpi, mapsUnitPerPixel, img )
       return True
     else:
       return False
+  #returning last qimage generated (used when nothing changed in the render)
   def getLastRenderedImage(self):
     return self.oLastRenderedImage
+  #update the state of rander (used when render state changed)
   def update(self, extent, portSize, logicalDpi, OutputDpi, mapsUnitPerPixel, img):
     self.oLastRenderedImage = img
     self.oLastExtent = extent 
     self.oLastViewPortSize = portSize 
     self.oLastLogicalDpi = logicalDpi 
     self.oLastOutputDpi = OutputDpi 
-    self.oLasMapsUnitsPerPixel = mapsUnitPerPixel  
+    self.oLasMapsUnitsPerPixel = mapsUnitPerPixel
